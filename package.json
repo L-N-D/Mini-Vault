@@ -1,0 +1,31 @@
+{
+  "name": "mini-vault",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mini Vault — KV Engine & Transit Engine (Computer Security Assignment 1)",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "tsx src/server.ts",
+    "vault:init": "tsx src/core/vault.cli-init.ts",
+    "vault:status": "tsx src/core/vault.cli-status.ts",
+    "demo": "tsx scripts/demo.ts",
+    "test": "tsx scripts/smoke-test.ts",
+    "test:vitest": "vitest run"
+  },
+  "dependencies": {
+    "argon2": "^0.41.1",
+    "better-sqlite3": "^11.8.1",
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

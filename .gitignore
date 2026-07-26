@@ -1,0 +1,8 @@
+node_modules/
+dist/
+data/vault.db
+data/vault.db-wal
+data/vault.db-shm
+.env
+*.log
+.DS_Store
