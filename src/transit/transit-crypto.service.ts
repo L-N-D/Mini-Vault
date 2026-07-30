@@ -6,8 +6,38 @@ import type { VaultState } from "../core/vault-state.js";
 import type { TransitAuthorizationPort } from "./access/transit-authorization.port.js";
 import type { TransitRepository } from "./transit.repository.js";
 import { assertKeyName } from "./transit-key.service.js";
+import { unwrapNamedKeyMaterial } from "./unwrap-named-key.js";
 
-const ENVELOPE_RE = /^vault:([A-Za-z0-9._-]{1,64}):([A-Za-z0-9_-]+)$/;
+const KEY_NAME = "[A-Za-z0-9._-]{1,64}";
+const B64URL = "[A-Za-z0-9_-]+";
+const ENVELOPE_VERSIONED_RE = new RegExp(
+  `^vault:(${KEY_NAME}):v(\\d+):(${B64URL})$`,
+);
+const ENVELOPE_LEGACY_RE = new RegExp(`^vault:(${KEY_NAME}):(${B64URL})$`);
+
+function parseEnvelope(ciphertext: string): {
+  keyName: string;
+  version: number;
+  packedB64: string;
+} {
+  const versioned = ENVELOPE_VERSIONED_RE.exec(ciphertext);
+  if (versioned) {
+    return {
+      keyName: versioned[1]!,
+      version: Number(versioned[2]),
+      packedB64: versioned[3]!,
+    };
+  }
+  const legacy = ENVELOPE_LEGACY_RE.exec(ciphertext);
+  if (legacy) {
+    return {
+      keyName: legacy[1]!,
+      version: 1,
+      packedB64: legacy[2]!,
+    };
+  }
+  throw new AppError("INVALID_CIPHERTEXT");
+}
 
 export class TransitCryptoService {
   constructor(
@@ -40,7 +70,11 @@ export class TransitCryptoService {
       throw new AppError("INVALID_KEY_USAGE");
     }
 
-    const material = this.repo.getEncryptedKeyMaterial(authorizedKey.id);
+    const version = authorizedKey.currentVersion;
+    const material = this.repo.getEncryptedKeyMaterial(
+      authorizedKey.id,
+      version,
+    );
     if (!material) {
       throw new AppError("KEY_NOT_FOUND");
     }
@@ -52,17 +86,13 @@ export class TransitCryptoService {
 
     let namedKey: Buffer | null = null;
     try {
-      const wrapAad = `transit-key:${authorizedKey.ownerEmail}:${authorizedKey.keyName}:ENCRYPT_DECRYPT:v1`;
-      namedKey = this.vaultState.withDek((dek) =>
-        aesGcmDecrypt(
-          dek,
-          {
-            nonceB64: material.nonceB64,
-            ciphertextB64: material.ciphertextB64,
-            tagB64: material.tagB64,
-          },
-          wrapAad,
-        ),
+      namedKey = unwrapNamedKeyMaterial(
+        this.vaultState,
+        material,
+        authorizedKey.ownerEmail,
+        authorizedKey.keyName,
+        "ENCRYPT_DECRYPT",
+        version,
       );
 
       const dataAad = `transit-data:${authorizedKey.ownerEmail}:${authorizedKey.keyName}:v1`;
@@ -72,9 +102,13 @@ export class TransitCryptoService {
         fromBase64(sealed.ciphertextB64),
         fromBase64(sealed.tagB64),
       ]);
-      return {
-        ciphertext: `vault:${keyName}:${toBase64Url(packed)}`,
-      };
+      // PDF §2.2 format for v1; versioned envelope only after rotation (bonus).
+      const packedB64 = toBase64Url(packed);
+      const ciphertext =
+        version === 1
+          ? `vault:${keyName}:${packedB64}`
+          : `vault:${keyName}:v${version}:${packedB64}`;
+      return { ciphertext };
     } finally {
       zeroize(namedKey);
     }
@@ -86,12 +120,7 @@ export class TransitCryptoService {
   ): Promise<{ plaintext_b64: string }> {
     this.requireUnlocked();
 
-    const match = ENVELOPE_RE.exec(ciphertext);
-    if (!match) {
-      throw new AppError("INVALID_CIPHERTEXT");
-    }
-    const keyName = match[1]!;
-    const packedB64 = match[2]!;
+    const { keyName, version, packedB64 } = parseEnvelope(ciphertext);
 
     const authorizedKey = await this.authorization.authorizeKey({
       actorEmail,
@@ -103,9 +132,12 @@ export class TransitCryptoService {
       throw new AppError("INVALID_KEY_USAGE");
     }
 
-    const material = this.repo.getEncryptedKeyMaterial(authorizedKey.id);
+    const material = this.repo.getEncryptedKeyMaterial(
+      authorizedKey.id,
+      version,
+    );
     if (!material) {
-      throw new AppError("KEY_NOT_FOUND");
+      throw new AppError("VERSION_NOT_FOUND");
     }
 
     let packed: Buffer;
@@ -124,17 +156,13 @@ export class TransitCryptoService {
 
     let namedKey: Buffer | null = null;
     try {
-      const wrapAad = `transit-key:${authorizedKey.ownerEmail}:${authorizedKey.keyName}:ENCRYPT_DECRYPT:v1`;
-      namedKey = this.vaultState.withDek((dek) =>
-        aesGcmDecrypt(
-          dek,
-          {
-            nonceB64: material.nonceB64,
-            ciphertextB64: material.ciphertextB64,
-            tagB64: material.tagB64,
-          },
-          wrapAad,
-        ),
+      namedKey = unwrapNamedKeyMaterial(
+        this.vaultState,
+        material,
+        authorizedKey.ownerEmail,
+        authorizedKey.keyName,
+        "ENCRYPT_DECRYPT",
+        version,
       );
 
       const dataAad = `transit-data:${authorizedKey.ownerEmail}:${authorizedKey.keyName}:v1`;

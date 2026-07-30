@@ -3,7 +3,8 @@ export type TransitProtectedAction =
   | "decrypt"
   | "sign"
   | "verify"
-  | "revoke";
+  | "revoke"
+  | "rotate";
 
 export interface TransitAuthorizationContext {
   actorEmail: string;
@@ -17,6 +18,8 @@ export interface AuthorizedKeyMetadata {
   ownerEmail: string;
   keyUsage: "ENCRYPT_DECRYPT" | "SIGN_VERIFY";
   signingAlgorithm: "ED25519" | null;
+  currentVersion: number;
+  allowPublicVerify: boolean;
 }
 
 export interface TransitAuthorizationPort {

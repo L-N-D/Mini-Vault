@@ -1,5 +1,6 @@
 import { AppError } from "../../common/errors.js";
 import { emailFromSecretPath } from "../../common/kv-path.js";
+import type { AclRepository } from "../../acl/acl.repository.js";
 import type { AuditService } from "../../audit/audit.service.js";
 import type {
   KvAuthorizationContext,
@@ -7,11 +8,14 @@ import type {
 } from "./kv-authorization.port.js";
 
 /**
- * Ownership-based ACL (section 1.2).
- * Path must be secret/<actorEmail>/...
+ * Ownership-based ACL (section 1.2), optionally extended by access_grants.
+ * Path must be secret/<ownerEmail>/...
  */
 export class OwnershipKvAuthorization implements KvAuthorizationPort {
-  constructor(private readonly audit: AuditService) {}
+  constructor(
+    private readonly audit: AuditService,
+    private readonly aclRepo?: AclRepository,
+  ) {}
 
   async assertAllowed(context: KvAuthorizationContext): Promise<void> {
     let ownerEmail: string;
@@ -21,9 +25,22 @@ export class OwnershipKvAuthorization implements KvAuthorizationPort {
       this.deny(context);
     }
 
-    if (ownerEmail !== context.actorEmail) {
-      this.deny(context);
+    if (ownerEmail === context.actorEmail) {
+      return;
     }
+
+    if (
+      this.aclRepo?.hasPermission(
+        "kv",
+        context.path,
+        context.actorEmail,
+        context.action,
+      )
+    ) {
+      return;
+    }
+
+    this.deny(context);
   }
 
   private deny(context: KvAuthorizationContext): never {

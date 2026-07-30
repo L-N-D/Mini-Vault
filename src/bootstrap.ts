@@ -18,10 +18,13 @@ import { TransitCryptoService } from "./transit/transit-crypto.service.js";
 import { SigningService } from "./transit/signing.service.js";
 import { TransitAuthorizationPlaceholder } from "./transit/access/transit-authorization.placeholder.js";
 import { OwnershipTransitAuthorization } from "./transit/access/ownership-transit-authorization.js";
+import { AclRepository } from "./acl/acl.repository.js";
+import { AclService } from "./acl/acl.service.js";
 import { registerRoutes, type AppServices } from "./app.js";
 import type { Clock } from "./common/clock.js";
 import type { Db } from "./storage/database.js";
 import type { MasterPassphraseProvider } from "./core/master-passphrase-provider.js";
+import type { ShareProvider } from "./core/share-provider.js";
 
 export interface BootstrapResult {
   app: ReturnType<typeof Fastify>;
@@ -44,15 +47,17 @@ export function createServices(
   const auth = new AuthService(authRepo, clock, audit);
   const kvRepo = new KvRepository(db);
   const transitRepo = new TransitRepository(db);
+  const aclRepo = new AclRepository(db);
+  const acl = new AclService(aclRepo, transitRepo, clock);
 
   const kvAuthz =
     authzMode === "placeholder"
       ? new KvAuthorizationPlaceholder()
-      : new OwnershipKvAuthorization(audit);
+      : new OwnershipKvAuthorization(audit, aclRepo);
   const transitAuthz =
     authzMode === "placeholder"
       ? new TransitAuthorizationPlaceholder()
-      : new OwnershipTransitAuthorization(transitRepo, audit);
+      : new OwnershipTransitAuthorization(transitRepo, audit, aclRepo);
 
   const kv = new KvService(kvRepo, vaultState, kvAuthz, clock);
   const transitKeys = new TransitKeyService(
@@ -76,8 +81,9 @@ export function createServices(
     transitKeys,
     transitCrypto,
     signing,
-    vaultService,
+    acl,
     audit,
+    vaultService,
   };
 }
 
@@ -108,6 +114,8 @@ export async function buildApp(options?: {
     transitKeys: created.transitKeys,
     transitCrypto: created.transitCrypto,
     signing: created.signing,
+    acl: created.acl,
+    audit: created.audit,
   };
 
   await registerRoutes(app, services);
@@ -125,8 +133,16 @@ export async function startUnlockLoop(
   vaultService: VaultService,
   provider: MasterPassphraseProvider,
 ): Promise<void> {
-  // Non-blocking: run in background so listen happens first
   void vaultService.unlockLoop(provider).catch((err) => {
     process.stderr.write(`Unlock loop error: ${String(err)}\n`);
+  });
+}
+
+export async function startShamirUnlockLoop(
+  vaultService: VaultService,
+  shareProvider: ShareProvider,
+): Promise<void> {
+  void vaultService.unlockLoopShamir(shareProvider).catch((err) => {
+    process.stderr.write(`Shamir unlock loop error: ${String(err)}\n`);
   });
 }

@@ -8,6 +8,7 @@ import { FakePassphraseProvider } from "../../src/core/fake-passphrase-provider.
 import { validateAndReturnCanonicalSecretPath } from "../../src/common/kv-path.js";
 import { AppError } from "../../src/common/errors.js";
 import { toBase64 } from "../../src/common/base64.js";
+import { requireSessionInfo } from "../../src/auth/auth.service.js";
 
 describe("kv path validation", () => {
   it("accepts canonical path", () => {
@@ -80,7 +81,9 @@ describe("mini-vault integration", () => {
       "user-passphrase1",
       "user-passphrase1",
     );
-    const login = await boot.services.auth.login("alice@example.com", "user-passphrase1");
+    const login = requireSessionInfo(
+      await boot.services.auth.login("alice@example.com", "user-passphrase1"),
+    );
     res = await fetch(`${base}/v1/kv/write`, {
       method: "POST",
       headers: {

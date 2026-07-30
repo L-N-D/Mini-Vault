@@ -1,6 +1,5 @@
 import { AppError } from "../common/errors.js";
 import { fromBase64, toBase64 } from "../common/base64.js";
-import { aesGcmDecrypt } from "../crypto/aes-gcm.js";
 import {
   ed25519Sign,
   ed25519Verify,
@@ -13,6 +12,7 @@ import type { VaultState } from "../core/vault-state.js";
 import type { TransitAuthorizationPort } from "./access/transit-authorization.port.js";
 import type { TransitRepository } from "./transit.repository.js";
 import { assertKeyName } from "./transit-key.service.js";
+import { unwrapNamedKeyMaterial } from "./unwrap-named-key.js";
 
 export class SigningService {
   constructor(
@@ -45,6 +45,7 @@ export class SigningService {
   ): Promise<{
     signature_b64: string;
     key_name: string;
+    key_version: number;
     signing_algorithm: string;
   }> {
     assertKeyName(keyName);
@@ -64,7 +65,11 @@ export class SigningService {
     }
     this.checkAlgorithm(signingAlgorithm, authorizedKey.signingAlgorithm);
 
-    const material = this.repo.getEncryptedKeyMaterial(authorizedKey.id);
+    const version = authorizedKey.currentVersion;
+    const material = this.repo.getEncryptedKeyMaterial(
+      authorizedKey.id,
+      version,
+    );
     if (!material) {
       throw new AppError("KEY_NOT_FOUND");
     }
@@ -77,22 +82,19 @@ export class SigningService {
 
     let privateKeyDer: Buffer | null = null;
     try {
-      const wrapAad = `transit-key:${authorizedKey.ownerEmail}:${authorizedKey.keyName}:SIGN_VERIFY:v1`;
-      privateKeyDer = this.vaultState.withDek((dek) =>
-        aesGcmDecrypt(
-          dek,
-          {
-            nonceB64: material.nonceB64,
-            ciphertextB64: material.ciphertextB64,
-            tagB64: material.tagB64,
-          },
-          wrapAad,
-        ),
+      privateKeyDer = unwrapNamedKeyMaterial(
+        this.vaultState,
+        material,
+        authorizedKey.ownerEmail,
+        authorizedKey.keyName,
+        "SIGN_VERIFY",
+        version,
       );
       const signature = ed25519Sign(privateKeyDer, digest);
       return {
         signature_b64: toBase64(signature),
         key_name: keyName,
+        key_version: version,
         signing_algorithm: SIGNING_ALGORITHM,
       };
     } finally {
@@ -107,8 +109,10 @@ export class SigningService {
     messageType: MessageType,
     signatureB64: string,
     signingAlgorithm?: string,
+    keyVersion?: number,
   ): Promise<{
     key_name: string;
+    key_version: number;
     signature_valid: boolean;
     signing_algorithm: string;
   }> {
@@ -129,9 +133,15 @@ export class SigningService {
     }
     this.checkAlgorithm(signingAlgorithm, authorizedKey.signingAlgorithm);
 
-    const material = this.repo.getEncryptedKeyMaterial(authorizedKey.id);
+    const version = keyVersion ?? authorizedKey.currentVersion;
+    const material = this.repo.getEncryptedKeyMaterial(
+      authorizedKey.id,
+      version,
+    );
     if (!material || !material.publicKeyB64) {
-      throw new AppError("KEY_NOT_FOUND");
+      throw new AppError(
+        keyVersion !== undefined ? "VERSION_NOT_FOUND" : "KEY_NOT_FOUND",
+      );
     }
 
     let message: Buffer;
@@ -160,6 +170,7 @@ export class SigningService {
 
     return {
       key_name: keyName,
+      key_version: version,
       signature_valid: valid,
       signing_algorithm: SIGNING_ALGORITHM,
     };

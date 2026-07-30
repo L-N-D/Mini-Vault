@@ -11,9 +11,13 @@
     "build": "tsc -p tsconfig.json",
     "start": "tsx src/server.ts",
     "vault:init": "tsx src/core/vault.cli-init.ts",
+    "vault:init:shamir": "tsx src/core/vault.cli-init-shamir.ts",
     "vault:status": "tsx src/core/vault.cli-status.ts",
+    "audit:verify": "tsx src/audit/audit.cli-verify.ts",
     "demo": "tsx scripts/demo.ts",
+    "demo:advanced": "tsx scripts/demo-advanced.ts",
     "test": "tsx scripts/smoke-test.ts",
+    "test:advanced": "tsx scripts/smoke-advanced.ts",
     "test:vitest": "vitest run"
   },
   "dependencies": {

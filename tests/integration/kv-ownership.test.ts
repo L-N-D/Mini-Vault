@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { buildApp } from "../../src/bootstrap.js";
 import { FakeClock } from "../../src/common/clock.js";
+import { requireSessionInfo } from "../../src/auth/auth.service.js";
 
 describe("KV ownership access control", () => {
     let dbPath: string;
@@ -56,10 +57,10 @@ describe("KV ownership access control", () => {
             "user-passphrase1",
         );
 
-        const aliceLogin = await boot.services.auth.login(
+        const aliceLogin = requireSessionInfo(await boot.services.auth.login(
             "alice@example.com",
             "user-passphrase1",
-        );
+        ));
 
         await boot.app.listen({
             port: 0,
@@ -160,15 +161,15 @@ describe("KV ownership access control", () => {
             "user-passphrase2",
         );
 
-        const aliceLogin = await boot.services.auth.login(
+        const aliceLogin = requireSessionInfo(await boot.services.auth.login(
             "alice@example.com",
             "user-passphrase1",
-        );
+        ));
 
-        const bobLogin = await boot.services.auth.login(
+        const bobLogin = requireSessionInfo(await boot.services.auth.login(
             "bob@example.com",
             "user-passphrase2",
-        );
+        ));
 
         await boot.app.listen({
             port: 0,
@@ -253,15 +254,15 @@ describe("KV ownership access control", () => {
             "user-passphrase2",
         );
 
-        const aliceLogin = await boot.services.auth.login(
+        const aliceLogin = requireSessionInfo(await boot.services.auth.login(
             "alice@example.com",
             "user-passphrase1",
-        );
+        ));
 
-        const bobLogin = await boot.services.auth.login(
+        const bobLogin = requireSessionInfo(await boot.services.auth.login(
             "bob@example.com",
             "user-passphrase2",
-        );
+        ));
 
         await boot.app.listen({
             port: 0,
@@ -372,15 +373,15 @@ describe("KV ownership access control", () => {
             "user-passphrase2",
         );
 
-        const aliceLogin = await boot.services.auth.login(
+        const aliceLogin = requireSessionInfo(await boot.services.auth.login(
             "alice@example.com",
             "user-passphrase1",
-        );
+        ));
 
-        const bobLogin = await boot.services.auth.login(
+        const bobLogin = requireSessionInfo(await boot.services.auth.login(
             "bob@example.com",
             "user-passphrase2",
-        );
+        ));
 
         await boot.app.listen({
             port: 0,
@@ -488,15 +489,15 @@ describe("KV ownership access control", () => {
             "user-passphrase2",
         );
 
-        const aliceLogin = await boot.services.auth.login(
+        const aliceLogin = requireSessionInfo(await boot.services.auth.login(
             "alice@example.com",
             "user-passphrase1",
-        );
+        ));
 
-        const bobLogin = await boot.services.auth.login(
+        const bobLogin = requireSessionInfo(await boot.services.auth.login(
             "bob@example.com",
             "user-passphrase2",
-        );
+        ));
 
         await boot.app.listen({
             port: 0,
@@ -712,10 +713,10 @@ describe("KV ownership access control", () => {
             "user-passphrase2",
         );
 
-        const bobLogin = await boot.services.auth.login(
+        const bobLogin = requireSessionInfo(await boot.services.auth.login(
             "bob@example.com",
             "user-passphrase2",
-        );
+        ));
 
         await boot.app.listen({
             port: 0,

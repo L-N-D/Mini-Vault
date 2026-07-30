@@ -29,12 +29,14 @@ describe("OwnershipTransitAuthorization", () => {
 
   it("allows the owner to use their own named key", async () => {
     const metadata = {
-      id: 1,
+      id: "1",
       keyName: "alice-key",
       ownerEmail: "alice@example.com",
-      keyUsage: "ENCRYPT_DECRYPT",
+      keyUsage: "ENCRYPT_DECRYPT" as const,
       signingAlgorithm: null,
-    } as const;
+      currentVersion: 1,
+      allowPublicVerify: false,
+    };
 
     getKeyMetadataMock.mockReturnValue(metadata);
 
@@ -52,11 +54,13 @@ describe("OwnershipTransitAuthorization", () => {
 
   it("denies a user from using another user's named key", async () => {
     getKeyMetadataMock.mockReturnValue({
-      id: 1,
+      id: "1",
       keyName: "alice-key",
       ownerEmail: "alice@example.com",
       keyUsage: "ENCRYPT_DECRYPT",
       signingAlgorithm: null,
+      currentVersion: 1,
+      allowPublicVerify: false,
     });
 
     await expect(

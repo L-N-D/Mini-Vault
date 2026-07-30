@@ -1,12 +1,17 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { AppError } from "./common/errors.js";
-import type { AuthService } from "./auth/auth.service.js";
+import {
+  isMfaRequiredResult,
+  type AuthService,
+} from "./auth/auth.service.js";
 import type { VaultService } from "./core/vault.service.js";
 import type { VaultState } from "./core/vault-state.js";
 import type { KvService } from "./kv/kv.service.js";
 import type { TransitKeyService } from "./transit/transit-key.service.js";
 import type { TransitCryptoService } from "./transit/transit-crypto.service.js";
 import type { SigningService } from "./transit/signing.service.js";
+import type { AclService } from "./acl/acl.service.js";
+import type { AuditService } from "./audit/audit.service.js";
 
 export interface AppServices {
   auth: AuthService;
@@ -16,6 +21,8 @@ export interface AppServices {
   transitKeys: TransitKeyService;
   transitCrypto: TransitCryptoService;
   signing: SigningService;
+  acl: AclService;
+  audit: AuditService;
 }
 
 function bearer(req: FastifyRequest): string | undefined {
@@ -24,7 +31,10 @@ function bearer(req: FastifyRequest): string | undefined {
   return header.slice("Bearer ".length).trim();
 }
 
-function requireAuth(services: AppServices, req: FastifyRequest): { email: string } {
+function requireAuth(
+  services: AppServices,
+  req: FastifyRequest,
+): { email: string } {
   return services.auth.authenticate(bearer(req));
 }
 
@@ -70,7 +80,6 @@ export async function registerRoutes(
     },
   );
 
-  // Public vault status — no session
   app.get("/v1/vault/status", async () => ({
     status: services.vault.runtimeStatus(),
   }));
@@ -87,18 +96,21 @@ export async function registerRoutes(
           properties: {
             email: { type: "string", maxLength: 254 },
             passphrase: { type: "string", minLength: 12, maxLength: 256 },
-            confirm_passphrase: { type: "string", minLength: 12, maxLength: 256 },
+            confirm_passphrase: {
+              type: "string",
+              minLength: 12,
+              maxLength: 256,
+            },
           },
         },
       },
     },
     async (req) => {
-      const result = await services.auth.register(
+      return services.auth.register(
         req.body.email,
         req.body.passphrase,
         req.body.confirm_passphrase,
       );
-      return result;
     },
   );
 
@@ -119,7 +131,48 @@ export async function registerRoutes(
       },
     },
     async (req) => {
-      const session = await services.auth.login(req.body.email, req.body.passphrase);
+      const result = await services.auth.login(
+        req.body.email,
+        req.body.passphrase,
+      );
+      if (isMfaRequiredResult(result)) {
+        return {
+          mfa_required: true,
+          mfa_token: result.mfa_token,
+          email: result.email,
+        };
+      }
+      return {
+        token: result.token,
+        expires_at: result.expiresAt,
+        email: result.email,
+      };
+    },
+  );
+
+  app.post<{
+    Body: { mfa_token: string; passphrase: string; code: string };
+  }>(
+    "/v1/auth/mfa/verify",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["mfa_token", "passphrase", "code"],
+          properties: {
+            mfa_token: { type: "string" },
+            passphrase: { type: "string", minLength: 12, maxLength: 256 },
+            code: { type: "string", minLength: 6, maxLength: 6 },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const session = await services.auth.mfaVerify(
+        req.body.mfa_token,
+        req.body.passphrase,
+        req.body.code,
+      );
       return {
         token: session.token,
         expires_at: session.expiresAt,
@@ -128,9 +181,69 @@ export async function registerRoutes(
     },
   );
 
+  app.post("/v1/auth/mfa/setup", async (req) => {
+    const { email } = requireAuth(services, req);
+    return services.auth.mfaSetup(email);
+  });
+
+  app.post<{ Body: { passphrase: string; code: string } }>(
+    "/v1/auth/mfa/enable",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["passphrase", "code"],
+          properties: {
+            passphrase: { type: "string", minLength: 12, maxLength: 256 },
+            code: { type: "string", minLength: 6, maxLength: 6 },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const { email } = requireAuth(services, req);
+      await services.auth.mfaEnable(
+        email,
+        req.body.passphrase,
+        req.body.code,
+      );
+      return { ok: true, totp_enabled: true };
+    },
+  );
+
+  app.post<{ Body: { passphrase: string; code: string } }>(
+    "/v1/auth/mfa/disable",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["passphrase", "code"],
+          properties: {
+            passphrase: { type: "string", minLength: 12, maxLength: 256 },
+            code: { type: "string", minLength: 6, maxLength: 6 },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const { email } = requireAuth(services, req);
+      await services.auth.mfaDisable(
+        email,
+        req.body.passphrase,
+        req.body.code,
+      );
+      return { ok: true, totp_enabled: false };
+    },
+  );
+
   app.post("/v1/auth/logout", async (req) => {
     services.auth.logout(bearer(req));
     return { ok: true };
+  });
+
+  app.get("/v1/audit/verify", async (req) => {
+    requireAuth(services, req);
+    return services.audit.verifyChain();
   });
 
   // KV
@@ -154,8 +267,28 @@ export async function registerRoutes(
     },
   );
 
-  app.post<{ Body: { path: string } }>(
+  app.post<{ Body: { path: string; version?: number } }>(
     "/v1/kv/read",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["path"],
+          properties: {
+            path: { type: "string", maxLength: 512 },
+            version: { type: "integer", minimum: 1 },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const { email } = requireAuth(services, req);
+      return services.kv.read(email, req.body.path, req.body.version);
+    },
+  );
+
+  app.post<{ Body: { path: string } }>(
+    "/v1/kv/versions",
     {
       schema: {
         body: {
@@ -167,7 +300,27 @@ export async function registerRoutes(
     },
     async (req) => {
       const { email } = requireAuth(services, req);
-      return services.kv.read(email, req.body.path);
+      return services.kv.listVersions(email, req.body.path);
+    },
+  );
+
+  app.post<{ Body: { path: string; version: number } }>(
+    "/v1/kv/read-version",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["path", "version"],
+          properties: {
+            path: { type: "string", maxLength: 512 },
+            version: { type: "integer", minimum: 1 },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const { email } = requireAuth(services, req);
+      return services.kv.read(email, req.body.path, req.body.version);
     },
   );
 
@@ -206,20 +359,27 @@ export async function registerRoutes(
     },
   );
 
-  app.post<{ Body: { key_name: string } }>(
+  app.post<{
+    Body: { key_name: string; allow_public_verify?: boolean };
+  }>(
     "/v1/transit/keys/signing",
     {
       schema: {
         body: {
           type: "object",
           required: ["key_name"],
-          properties: { key_name: { type: "string", maxLength: 64 } },
+          properties: {
+            key_name: { type: "string", maxLength: 64 },
+            allow_public_verify: { type: "boolean" },
+          },
         },
       },
     },
     async (req) => {
       const { email } = requireAuth(services, req);
-      return services.transitKeys.createSigningKey(email, req.body.key_name);
+      return services.transitKeys.createSigningKey(email, req.body.key_name, {
+        allowPublicVerify: req.body.allow_public_verify === true,
+      });
     },
   );
 
@@ -233,6 +393,14 @@ export async function registerRoutes(
     async (req) => {
       const { email } = requireAuth(services, req);
       return services.transitKeys.revokeKey(email, req.params.keyName);
+    },
+  );
+
+  app.post<{ Params: { keyName: string } }>(
+    "/v1/transit/keys/:keyName/rotate",
+    async (req) => {
+      const { email } = requireAuth(services, req);
+      return services.transitKeys.rotateKey(email, req.params.keyName);
     },
   );
 
@@ -318,6 +486,7 @@ export async function registerRoutes(
       message_type: "RAW" | "DIGEST";
       signature_b64: string;
       signing_algorithm?: string;
+      key_version?: number;
     };
   }>(
     "/v1/transit/verify/:keyName",
@@ -331,6 +500,7 @@ export async function registerRoutes(
             message_type: { type: "string", enum: ["RAW", "DIGEST"] },
             signature_b64: { type: "string" },
             signing_algorithm: { type: "string" },
+            key_version: { type: "integer", minimum: 1 },
           },
         },
       },
@@ -344,7 +514,132 @@ export async function registerRoutes(
         req.body.message_type,
         req.body.signature_b64,
         req.body.signing_algorithm,
+        req.body.key_version,
       );
+    },
+  );
+
+  // ACL
+  app.post<{
+    Body: {
+      resource_type: "kv" | "transit";
+      resource_id: string;
+      grantee_email: string;
+      permissions: string[];
+    };
+  }>(
+    "/v1/acl/grant",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: [
+            "resource_type",
+            "resource_id",
+            "grantee_email",
+            "permissions",
+          ],
+          properties: {
+            resource_type: { type: "string", enum: ["kv", "transit"] },
+            resource_id: { type: "string", maxLength: 512 },
+            grantee_email: { type: "string", maxLength: 254 },
+            permissions: {
+              type: "array",
+              items: { type: "string" },
+              minItems: 1,
+            },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const { email } = requireAuth(services, req);
+      const row = services.acl.grant(
+        email,
+        req.body.resource_type,
+        req.body.resource_id,
+        req.body.grantee_email,
+        req.body.permissions,
+      );
+      return {
+        id: row.id,
+        resource_type: row.resource_type,
+        resource_id: row.resource_id,
+        grantee_email: row.grantee_email,
+        permissions: row.permissions.split(","),
+        granted_by: row.granted_by,
+        created_at: row.created_at,
+      };
+    },
+  );
+
+  app.post<{
+    Body: {
+      resource_type: "kv" | "transit";
+      resource_id: string;
+      grantee_email: string;
+    };
+  }>(
+    "/v1/acl/revoke",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["resource_type", "resource_id", "grantee_email"],
+          properties: {
+            resource_type: { type: "string", enum: ["kv", "transit"] },
+            resource_id: { type: "string", maxLength: 512 },
+            grantee_email: { type: "string", maxLength: 254 },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const { email } = requireAuth(services, req);
+      services.acl.revoke(
+        email,
+        req.body.resource_type,
+        req.body.resource_id,
+        req.body.grantee_email,
+      );
+      return { revoked: true };
+    },
+  );
+
+  app.get<{
+    Querystring: { resource_type: "kv" | "transit"; resource_id: string };
+  }>(
+    "/v1/acl/list",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          required: ["resource_type", "resource_id"],
+          properties: {
+            resource_type: { type: "string", enum: ["kv", "transit"] },
+            resource_id: { type: "string", maxLength: 512 },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const { email } = requireAuth(services, req);
+      const rows = services.acl.list(
+        email,
+        req.query.resource_type,
+        req.query.resource_id,
+      );
+      return {
+        grants: rows.map((row) => ({
+          id: row.id,
+          resource_type: row.resource_type,
+          resource_id: row.resource_id,
+          grantee_email: row.grantee_email,
+          permissions: row.permissions.split(","),
+          granted_by: row.granted_by,
+          created_at: row.created_at,
+        })),
+      };
     },
   );
 }

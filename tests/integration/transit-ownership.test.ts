@@ -6,6 +6,7 @@ import path from "node:path";
 import { buildApp } from "../../src/bootstrap.js";
 import { FakeClock } from "../../src/common/clock.js";
 import { toBase64 } from "../../src/common/base64.js";
+import { requireSessionInfo } from "../../src/auth/auth.service.js";
 
 describe("Transit named-key ownership access control", () => {
     let dbPath: string;
@@ -369,15 +370,15 @@ describe("Transit named-key ownership access control", () => {
             "user-passphrase2",
         );
 
-        const aliceLogin = await boot.services.auth.login(
+        const aliceLogin = requireSessionInfo(await boot.services.auth.login(
             "alice@example.com",
             "user-passphrase1",
-        );
+        ));
 
-        const bobLogin = await boot.services.auth.login(
+        const bobLogin = requireSessionInfo(await boot.services.auth.login(
             "bob@example.com",
             "user-passphrase2",
-        );
+        ));
 
         await boot.app.listen({
             port: 0,
@@ -466,15 +467,15 @@ describe("Transit named-key ownership access control", () => {
             "user-passphrase2",
         );
 
-        const aliceLogin = await boot.services.auth.login(
+        const aliceLogin = requireSessionInfo(await boot.services.auth.login(
             "alice@example.com",
             "user-passphrase1",
-        );
+        ));
 
-        const bobLogin = await boot.services.auth.login(
+        const bobLogin = requireSessionInfo(await boot.services.auth.login(
             "bob@example.com",
             "user-passphrase2",
-        );
+        ));
 
         await boot.app.listen({
             port: 0,

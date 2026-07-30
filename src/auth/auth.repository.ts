@@ -7,6 +7,12 @@ export interface UserRow {
   locked_until: string | null;
   created_at: string;
   updated_at: string;
+  totp_enabled: number;
+  totp_salt_b64: string | null;
+  totp_secret_nonce_b64: string | null;
+  totp_secret_ct_b64: string | null;
+  totp_secret_tag_b64: string | null;
+  totp_pending_secret_b64: string | null;
 }
 
 export interface SessionRow {
@@ -18,6 +24,17 @@ export interface SessionRow {
   created_at: string;
 }
 
+export interface MfaChallengeRow {
+  token_hash: string;
+  user_email: string;
+  expires_at: string;
+  created_at: string;
+}
+
+const USER_SELECT = `email, password_hash, failed_attempts, locked_until, created_at, updated_at,
+           totp_enabled, totp_salt_b64, totp_secret_nonce_b64, totp_secret_ct_b64,
+           totp_secret_tag_b64, totp_pending_secret_b64`;
+
 export class AuthRepository {
   constructor(private readonly db: Db) {}
 
@@ -25,7 +42,7 @@ export class AuthRepository {
     return (
       (this.db
         .prepare(
-          `SELECT email, password_hash, failed_attempts, locked_until, created_at, updated_at
+          `SELECT ${USER_SELECT}
            FROM users WHERE email = ?`,
         )
         .get(email) as UserRow | undefined) ?? null
@@ -72,6 +89,96 @@ export class AuthRepository {
         `UPDATE users SET failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE email = ?`,
       )
       .run(nowIso, email);
+  }
+
+  setTotpPending(email: string, pendingSecretB64: string, nowIso: string): void {
+    this.db
+      .prepare(
+        `UPDATE users SET totp_pending_secret_b64 = ?, updated_at = ? WHERE email = ?`,
+      )
+      .run(pendingSecretB64, nowIso, email);
+  }
+
+  clearTotpPending(email: string, nowIso: string): void {
+    this.db
+      .prepare(
+        `UPDATE users SET totp_pending_secret_b64 = NULL, updated_at = ? WHERE email = ?`,
+      )
+      .run(nowIso, email);
+  }
+
+  enableTotp(
+    email: string,
+    sealed: {
+      saltB64: string;
+      nonceB64: string;
+      ciphertextB64: string;
+      tagB64: string;
+    },
+    nowIso: string,
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE users SET
+           totp_enabled = 1,
+           totp_salt_b64 = ?,
+           totp_secret_nonce_b64 = ?,
+           totp_secret_ct_b64 = ?,
+           totp_secret_tag_b64 = ?,
+           totp_pending_secret_b64 = NULL,
+           updated_at = ?
+         WHERE email = ?`,
+      )
+      .run(
+        sealed.saltB64,
+        sealed.nonceB64,
+        sealed.ciphertextB64,
+        sealed.tagB64,
+        nowIso,
+        email,
+      );
+  }
+
+  disableTotp(email: string, nowIso: string): void {
+    this.db
+      .prepare(
+        `UPDATE users SET
+           totp_enabled = 0,
+           totp_salt_b64 = NULL,
+           totp_secret_nonce_b64 = NULL,
+           totp_secret_ct_b64 = NULL,
+           totp_secret_tag_b64 = NULL,
+           totp_pending_secret_b64 = NULL,
+           updated_at = ?
+         WHERE email = ?`,
+      )
+      .run(nowIso, email);
+  }
+
+  createMfaChallenge(row: MfaChallengeRow): void {
+    this.db
+      .prepare(
+        `INSERT INTO mfa_challenges (token_hash, user_email, expires_at, created_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(row.token_hash, row.user_email, row.expires_at, row.created_at);
+  }
+
+  findMfaChallenge(tokenHash: string): MfaChallengeRow | null {
+    return (
+      (this.db
+        .prepare(
+          `SELECT token_hash, user_email, expires_at, created_at
+           FROM mfa_challenges WHERE token_hash = ?`,
+        )
+        .get(tokenHash) as MfaChallengeRow | undefined) ?? null
+    );
+  }
+
+  deleteMfaChallenge(tokenHash: string): void {
+    this.db
+      .prepare(`DELETE FROM mfa_challenges WHERE token_hash = ?`)
+      .run(tokenHash);
   }
 
   createSession(row: SessionRow): void {

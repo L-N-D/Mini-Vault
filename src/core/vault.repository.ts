@@ -1,5 +1,7 @@
 import type { Db } from "../storage/database.js";
 
+export type VaultUnlockMode = "passphrase" | "shamir";
+
 export interface VaultMetadataRow {
   kdf_name: string;
   kdf_salt_b64: string;
@@ -8,6 +10,9 @@ export interface VaultMetadataRow {
   encrypted_dek_b64: string;
   dek_tag_b64: string;
   created_at: string;
+  unlock_mode: VaultUnlockMode;
+  shamir_n: number | null;
+  shamir_k: number | null;
 }
 
 export class VaultRepository {
@@ -25,7 +30,8 @@ export class VaultRepository {
       (this.db
         .prepare(
           `SELECT kdf_name, kdf_salt_b64, kdf_params_json, dek_nonce_b64,
-                  encrypted_dek_b64, dek_tag_b64, created_at
+                  encrypted_dek_b64, dek_tag_b64, created_at,
+                  unlock_mode, shamir_n, shamir_k
            FROM vault_metadata WHERE id = 1`,
         )
         .get() as VaultMetadataRow | undefined) ?? null
@@ -38,8 +44,9 @@ export class VaultRepository {
       .prepare(
         `INSERT INTO vault_metadata
          (id, kdf_name, kdf_salt_b64, kdf_params_json, dek_nonce_b64,
-          encrypted_dek_b64, dek_tag_b64, created_at)
-         VALUES (1, ?, ?, ?, ?, ?, ?, ?)`,
+          encrypted_dek_b64, dek_tag_b64, created_at,
+          unlock_mode, shamir_n, shamir_k)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.kdf_name,
@@ -49,6 +56,9 @@ export class VaultRepository {
         row.encrypted_dek_b64,
         row.dek_tag_b64,
         row.created_at,
+        row.unlock_mode,
+        row.shamir_n,
+        row.shamir_k,
       );
   }
 

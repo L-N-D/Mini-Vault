@@ -21,7 +21,15 @@ export type ErrorCode =
   | "INVALID_DIGEST_LENGTH"
   | "INVALID_BASE64"
   | "REQUEST_TOO_LARGE"
-  | "INVALID_INPUT";
+  | "INVALID_INPUT"
+  | "MFA_REQUIRED"
+  | "INVALID_MFA_CODE"
+  | "MFA_TOKEN_EXPIRED"
+  | "VERSION_NOT_FOUND"
+  | "INVALID_SHARE"
+  | "INSUFFICIENT_SHARES"
+  | "AUDIT_CHAIN_BROKEN"
+  | "GRANT_NOT_FOUND";
 
 export class AppError extends Error {
   readonly code: ErrorCode;
@@ -41,6 +49,8 @@ function defaultStatus(code: ErrorCode): number {
     case "SESSION_EXPIRED":
     case "INVALID_CREDENTIALS":
     case "INVALID_MASTER_PASSPHRASE":
+    case "INVALID_MFA_CODE":
+    case "MFA_TOKEN_EXPIRED":
       return 401;
     case "PERMISSION_DENIED":
     case "ACCOUNT_LOCKED":
@@ -48,6 +58,8 @@ function defaultStatus(code: ErrorCode): number {
       return 403;
     case "NOT_FOUND":
     case "KEY_NOT_FOUND":
+    case "VERSION_NOT_FOUND":
+    case "GRANT_NOT_FOUND":
       return 404;
     case "VAULT_LOCKED":
     case "VAULT_NOT_INITIALIZED":
@@ -62,6 +74,10 @@ function defaultStatus(code: ErrorCode): number {
     case "INVALID_DIGEST_LENGTH":
     case "INVALID_BASE64":
     case "INVALID_INPUT":
+    case "MFA_REQUIRED":
+    case "INVALID_SHARE":
+    case "INSUFFICIENT_SHARES":
+    case "AUDIT_CHAIN_BROKEN":
       return 400;
     case "REQUEST_TOO_LARGE":
       return 413;

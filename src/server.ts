@@ -1,5 +1,6 @@
-import { buildApp, startUnlockLoop } from "./bootstrap.js";
+import { buildApp, startUnlockLoop, startShamirUnlockLoop } from "./bootstrap.js";
 import { HiddenStdinPassphraseProvider } from "./core/hidden-stdin-passphrase-provider.js";
+import { HiddenStdinShareProvider } from "./core/hidden-stdin-share-provider.js";
 import { AppError } from "./common/errors.js";
 
 async function main(): Promise<void> {
@@ -7,7 +8,7 @@ async function main(): Promise<void> {
 
   if (vaultService.diskStatus() === "NOT_INITIALIZED") {
     process.stderr.write(
-      "Vault is NOT_INITIALIZED. Run: npm run vault:init\n",
+      "Vault is NOT_INITIALIZED. Run: npm run vault:init  or  npm run vault:init:shamir\n",
     );
     db.close();
     process.exit(1);
@@ -20,8 +21,14 @@ async function main(): Promise<void> {
     );
     process.stdout.write(`GET /v1/vault/status  (no auth)\n`);
 
-    const provider = new HiddenStdinPassphraseProvider();
-    await startUnlockLoop(vaultService, provider);
+    const unlockMode = vaultService.getUnlockMode();
+    if (unlockMode === "shamir") {
+      process.stdout.write("Unlock mode: Shamir shares\n");
+      await startShamirUnlockLoop(vaultService, new HiddenStdinShareProvider());
+    } else {
+      process.stdout.write("Unlock mode: Master Passphrase\n");
+      await startUnlockLoop(vaultService, new HiddenStdinPassphraseProvider());
+    }
   } catch (err) {
     if (err instanceof AppError) {
       process.stderr.write(`${err.code}: ${err.message}\n`);
