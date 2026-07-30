@@ -17,15 +17,22 @@ export class OwnershipTransitAuthorization implements TransitAuthorizationPort {
     context: TransitAuthorizationContext,
   ): Promise<AuthorizedKeyMetadata> {
     const meta = this.repo.getKeyMetadata(context.keyName);
+
     if (!meta || meta.ownerEmail !== context.actorEmail) {
-      this.audit.denied({
-        requesterEmail: context.actorEmail,
-        targetType: "transit_key",
-        targetValue: context.keyName,
-        safeReasonCode: "PERMISSION_DENIED",
-      });
-      throw new AppError("PERMISSION_DENIED");
+      this.deny(context);
     }
+
     return meta;
+  }
+
+  private deny(context: TransitAuthorizationContext) : never {
+    this.audit.denied({
+      requesterEmail: context.actorEmail,
+      targetType: "transit_key",
+      targetValue: context.keyName,
+      safeReasonCode: "PERMISSION_DENIED",
+    });
+
+    throw new AppError("PERMISSION_DENIED");
   }
 }

@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { FakeClock } from "../src/common/clock.js";
-import { buildApp } from "../src/bootstrap.js";
-import { FakePassphraseProvider } from "../src/core/fake-passphrase-provider.js";
-import { validateAndReturnCanonicalSecretPath } from "../src/common/kv-path.js";
-import { AppError } from "../src/common/errors.js";
-import { toBase64 } from "../src/common/base64.js";
+import { FakeClock } from "../../src/common/clock.js";
+import { buildApp } from "../../src/bootstrap.js";
+import { FakePassphraseProvider } from "../../src/core/fake-passphrase-provider.js";
+import { validateAndReturnCanonicalSecretPath } from "../../src/common/kv-path.js";
+import { AppError } from "../../src/common/errors.js";
+import { toBase64 } from "../../src/common/base64.js";
 
 describe("kv path validation", () => {
   it("accepts canonical path", () => {
@@ -75,12 +75,12 @@ describe("mini-vault integration", () => {
     expect(await res.json()).toEqual({ status: "LOCKED" });
 
     // Feature while locked
-    await boot.auth.register(
+    await boot.services.auth.register(
       "alice@example.com",
       "user-passphrase1",
       "user-passphrase1",
     );
-    const login = await boot.auth.login("alice@example.com", "user-passphrase1");
+    const login = await boot.services.auth.login("alice@example.com", "user-passphrase1");
     res = await fetch(`${base}/v1/kv/write`, {
       method: "POST",
       headers: {
