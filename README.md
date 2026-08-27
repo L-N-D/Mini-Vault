@@ -15,7 +15,7 @@ Secure Storage (KV Engine) & Encryption / Signing as a Service (Transit Engine)
 ## Setup
 
 ```bash
-cd 23127177_23127200
+cd 23127177_23127200/Mini-Vault/
 npm install
 ```
 
@@ -79,7 +79,7 @@ npm run demo:advanced    # shorter console demo of advanced features
 
 ## Advanced features (extra credit)
 
-Implemented bonus features (suggested sum ≈ 2.4 on the rubric; **capped at +1.0**):
+The following advanced features have been implemented and tested:
 
 | # | Feature | Notes |
 |---|---------|--------|
@@ -133,4 +133,4 @@ npm run vault:init
 
 ## Project docs
 
-See `../docs/FINAL_PLAN.md` for the full design plan.
+See `../docs/report/23127177_23127200_report.pdf` for the report.
