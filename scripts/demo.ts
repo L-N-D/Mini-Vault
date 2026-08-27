@@ -77,23 +77,55 @@ async function api(
   };
 }
 
+// ANSI Color Palette
+const c = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  blue: "\x1b[34m",
+  magenta: "\x1b[35m",
+  cyan: "\x1b[36m",
+  white: "\x1b[37m",
+  bRed: "\x1b[91m",
+  bGreen: "\x1b[92m",
+  bYellow: "\x1b[93m",
+  bBlue: "\x1b[94m",
+  bMagenta: "\x1b[95m",
+  bCyan: "\x1b[96m",
+  bWhite: "\x1b[97m",
+};
+
+function colorizeJson(obj: unknown, indent = 2): string {
+  const jsonStr = JSON.stringify(obj, null, indent);
+  return jsonStr
+    .replace(/"([^"]+)":/g, `${c.bCyan}"$1"${c.reset}:`)
+    .replace(/: "([^"]*)"/g, `: ${c.green}"$1"${c.reset}`)
+    .replace(/: (true|false)/g, (_, val) => `: ${val === "true" ? c.bGreen : c.bRed}${val}${c.reset}`)
+    .replace(/: (\d+)/g, `: ${c.bMagenta}$1${c.reset}`)
+    .replace(/: null/g, `: ${c.dim}null${c.reset}`);
+}
+
 function section(title: string): void {
-  console.log(`\n${"=".repeat(72)}`);
-  console.log(title);
-  console.log("=".repeat(72));
+  console.log(`\n${c.bCyan}${"═".repeat(76)}${c.reset}`);
+  console.log(`${c.bold}${c.bWhite}  ${title}${c.reset}`);
+  console.log(`${c.bCyan}${"═".repeat(76)}${c.reset}`);
 }
 
 function evidence(input: DemoEvidence): void {
-  console.log(`\nACTION: ${input.action}`);
-  console.log(`EXPECTED: ${input.expected}`);
-  console.log(`ACTUAL: ${input.actual}`);
+  console.log(`  ${c.bold}${c.bYellow}ACTION:${c.reset}   ${input.action}`);
+  console.log(`  ${c.bold}${c.bMagenta}EXPECTED:${c.reset} ${input.expected}`);
+  console.log(`  ${c.bold}${c.bCyan}ACTUAL:${c.reset}   ${input.actual}`);
 }
 
 function pass(message: string): void {
-  console.log(`RESULT: PASS — ${message}`);
+  console.log(`  ${c.bold}${c.bGreen}✔ PASS${c.reset} — ${c.green}${message}${c.reset}`);
 }
 
 function fail(message: string): never {
+  console.log(`  ${c.bold}${c.bRed}✖ FAIL${c.reset} — ${c.red}${message}${c.reset}`);
   throw new Error(message);
 }
 
@@ -184,8 +216,12 @@ function printEvidence(
   title: string,
   details: Record<string, unknown>,
 ): void {
-  console.log(`\nEVIDENCE — ${title}`);
-  console.log(JSON.stringify(details, null, 2));
+  console.log(`\n  ${c.dim}┌── EVIDENCE: ${c.bWhite}${title}${c.dim} ${"─".repeat(Math.max(0, 56 - title.length))}${c.reset}`);
+  const coloredLines = colorizeJson(details).split("\n");
+  for (const line of coloredLines) {
+    console.log(`  ${c.dim}│${c.reset} ${line}`);
+  }
+  console.log(`  ${c.dim}└${"─".repeat(72)}${c.reset}`);
 }
 
 async function writeTransitCiphertextSample(
@@ -1359,57 +1395,28 @@ async function main(): Promise<void> {
   pass("The tampered message was detected as invalid");
 
 
-  section("DEMO EVIDENCE SUMMARY");
+  const summaryRows = [
+    { id: "0.1", name: "Vault Init & Unlock", result: "PASS", evidence: "HTTP 200; status UNLOCKED in RAM" },
+    { id: "0.2", name: "Registration & Login", result: "PASS", evidence: "Argon2id + SHA-256 tokens + Lockout" },
+    { id: "1.1", name: "KV Encrypted-at-Rest", result: "PASS", evidence: "AES-256-GCM + AAD path & owner binding" },
+    { id: "1.2", name: "KV Ownership ACL", result: "PASS", evidence: "Bob -> Alice path: 403 PERMISSION_DENIED" },
+    { id: "2.1", name: "Named-Key Management", result: "PASS", evidence: "AES/Ed25519; zero key material leak" },
+    { id: "2.2", name: "Transit Encrypt/Decrypt", result: "PASS", evidence: "Plaintext matches; self-describing envelope" },
+    { id: "2.3", name: "Transit Access Control", result: "PASS", evidence: "Bob -> Alice key: 403 PERMISSION_DENIED" },
+    { id: "2.4", name: "Sign & Verify (Ed25519)", result: "PASS", evidence: "Original valid; tampered detected invalid" },
+  ];
 
-  console.table([
-    {
-      Feature: "0.1",
-      Verification: "Vault runtime status",
-      Evidence: "HTTP 200; status UNLOCKED",
-    },
-    {
-      Feature: "0.2",
-      Verification: "Registration and login",
-      Evidence:
-        "Two users; valid and distinct token fingerprints",
-    },
-    {
-      Feature: "1.1",
-      Verification: "KV write/read round trip",
-      Evidence:
-        "Input and output SHA-256 hashes match",
-    },
-    {
-      Feature: "1.2",
-      Verification: "Cross-user KV denial",
-      Evidence:
-        "Bob -> Alice path: 403 PERMISSION_DENIED",
-    },
-    {
-      Feature: "2.1",
-      Verification: "Named-key creation",
-      Evidence:
-        "Correct usage; no key material response fields",
-    },
-    {
-      Feature: "2.2",
-      Verification: "Transit round trip",
-      Evidence:
-        "Plaintext hashes match; valid Vault envelope",
-    },
-    {
-      Feature: "2.3",
-      Verification: "Cross-user key denial",
-      Evidence:
-        "Bob -> Alice key: 403 PERMISSION_DENIED",
-    },
-    {
-      Feature: "2.4",
-      Verification: "Sign and verify",
-      Evidence:
-        "Original valid; tampered message invalid",
-    },
-  ]);
+  console.log(`\n${c.bCyan}┌─────┬───────────────────────────┬────────┬───────────────────────────────────────────┐${c.reset}`);
+  console.log(`${c.bCyan}│${c.bold}${c.bWhite} Feat│ Mandatory Feature         │ Result │ Key Verification Evidence                 ${c.bCyan}│${c.reset}`);
+  console.log(`${c.bCyan}├─────┼───────────────────────────┼────────┼───────────────────────────────────────────┤${c.reset}`);
+  for (const r of summaryRows) {
+    const id = r.id.padEnd(3);
+    const name = r.name.padEnd(25);
+    const result = `${c.bold}${c.bGreen}PASS${c.reset}  `;
+    const ev = r.evidence.padEnd(41);
+    console.log(`${c.bCyan}│${c.reset} ${id} │ ${name} │ ${result} │ ${ev} ${c.bCyan}│${c.reset}`);
+  }
+  console.log(`${c.bCyan}└─────┴───────────────────────────┴────────┴───────────────────────────────────────────┘${c.reset}`);
 
   printEvidence(
     "Demo completion",
@@ -1433,14 +1440,14 @@ async function main(): Promise<void> {
 
 main()
   .then(() => {
-    console.log(`\n${"=".repeat(72)}`);
-    console.log("ALL REQUIRED MINI VAULT DEMO CHECKS PASSED");
-    console.log("=".repeat(72));
+    console.log(`\n${c.bold}${c.bGreen}============================================================================${c.reset}`);
+    console.log(`${c.bold}${c.bWhite}  ALL REQUIRED MINI VAULT DEMO CHECKS PASSED SUCCESSFULLY!                 ${c.reset}`);
+    console.log(`${c.bold}${c.bGreen}============================================================================${c.reset}\n`);
   })
   .catch((error: unknown) => {
-    console.error(`\n${"=".repeat(72)}`);
-    console.error("MINI VAULT DEMO FAILED");
-    console.error("=".repeat(72));
+    console.error(`\n${c.bold}${c.bRed}============================================================================${c.reset}`);
+    console.error(`${c.bold}${c.bRed}  MINI VAULT DEMO FAILED${c.reset}`);
+    console.error(`${c.bold}${c.bRed}============================================================================${c.reset}`);
 
     if (error instanceof Error) {
       console.error(error.message);
